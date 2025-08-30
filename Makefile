@@ -8,6 +8,7 @@ endif
 DKMS        := $(shell which dkms 2> /dev/null)
 MODULE_DIR  := /lib/modules/$(KVERSION)
 
+CONFIG_MODULE_SIG=n
 
 obj-m += ch341-core.o
 obj-m += i2c-ch341.o

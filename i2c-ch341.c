@@ -2,6 +2,7 @@
 /*
  * I2C cell driver for the CH341A, CH341B and CH341T.
  *
+ * Copyright 2025, ZJUYZJ
  * Copyright 2022, Frank Zago
  * Copyright (c) 2016 Tse Lun Bien
  * Copyright (c) 2014 Marco Gittler
@@ -80,7 +81,7 @@ static int is_dev_busy(const struct i2c_adapter *adapter, const struct i2c_msg *
 	return ret;
 }
 
-static int ch341_i2c_write(const struct i2c_adapter *adapter, const struct i2c_msg *msg)
+static int ch341_i2c_write(const struct i2c_adapter *adapter, const struct i2c_msg *msg, bool skip_stop)
 {
 	const struct ch341_i2c *dev = i2c_get_adapdata(adapter);
 	struct ch341_ddata *ddata = adapter->algo_data;
@@ -125,9 +126,13 @@ static int ch341_i2c_write(const struct i2c_adapter *adapter, const struct i2c_m
 		 * the i2c STOP in this packet. Add it to the next
 		 * (empty) packet.
 		 */
-		if (len == 0 && ((out - dev->i2c_buf) < (SEG_SIZE - 1))) {
-			*out++ = CH341_CMD_I2C_STM_STO;
-			stop_done = true;
+		if (len == 0) {
+			if (skip_stop) {
+				stop_done = true;
+			} else if((out - dev->i2c_buf) < (SEG_SIZE - 1)) {
+				*out++ = CH341_CMD_I2C_STM_STO;
+				stop_done = true;
+			}
 		}
 
 		*out++ = CH341_CMD_I2C_STM_END;
@@ -223,11 +228,13 @@ static int ch341_i2c_xfer(struct i2c_adapter *adapter, struct i2c_msg *msgs, int
 
 	for (i = 0; i != num; i++) {
 		struct i2c_msg *msg = &msgs[i];
+		
+		bool skip_stop = (i != (num-1)) && (msgs[i+1].flags & I2C_M_NOSTART);
 
 		if (msg->flags & I2C_M_RD)
 			ret = ch341_i2c_read(adapter, msg);
 		else
-			ret = ch341_i2c_write(adapter, msg);
+			ret = ch341_i2c_write(adapter, msg, skip_stop);
 
 		if (ret)
 			return ret;
@@ -238,7 +245,7 @@ static int ch341_i2c_xfer(struct i2c_adapter *adapter, struct i2c_msg *msgs, int
 
 static u32 ch341_i2c_func(struct i2c_adapter *adap)
 {
-	return I2C_FUNC_I2C | I2C_FUNC_SMBUS_EMUL;
+	return I2C_FUNC_I2C | I2C_FUNC_SMBUS_EMUL | I2C_FUNC_NOSTART;
 }
 
 static const struct i2c_algorithm ch341_i2c_algorithm = {
@@ -287,7 +294,7 @@ static int ch341_i2c_probe(struct platform_device *pdev)
 
 	/* Set ch341 i2c speed */
 	ch341_i2c->i2c_buf[0] = CH341_CMD_I2C_STREAM;
-	ch341_i2c->i2c_buf[1] = CH341_CMD_I2C_STM_SET | CH341_I2C_100KHZ;
+	ch341_i2c->i2c_buf[1] = CH341_CMD_I2C_STM_SET | CH341_I2C_750KHZ;
 	ch341_i2c->i2c_buf[2] = CH341_CMD_I2C_STM_END;
 	mutex_lock(&ddata->usb_lock);
 	ret = usb_bulk_msg(ddata->usb_dev,
